@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Paula the Pangolin's Catechism Quest</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #eef1f6;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            padding: 10px;
+            box-sizing: border-box;
+            touch-action: manipulation; /* Prevents double-tap zoom delay */
+        }
+        h1 { color: #2c3e50; margin: 5px 0; font-size: 1.5rem; text-align: center; }
+        #instructions { color: #555; max-width: 600px; text-align: center; margin-bottom: 10px; font-size: 0.9rem; }
+        
+        #game-container { 
+            position: relative; 
+            width: 100%; 
+            max-width: 800px; 
+        }
+        canvas {
+            background-color: #e5e8e8; /* Level 2 Dirt Color */
+            border: 4px solid #2e4053;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+            width: 100%; 
+            height: auto;
+            display: block;
+        }
+        #ui-box {
+            margin-top: 10px;
+            padding: 12px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 800px;
+            display: none; 
+            align-items: center;
+            justify-content: space-between;
+            box-sizing: border-box;
+        }
+        .sentence {
+            font-size: 0.85rem;
+            color: #27ae60;
+            font-weight: bold;
+            text-align: left;
+            flex-grow: 1;
+            line-height: 1.3;
+        }
+        #restart-btn {
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            margin-left: 10px;
+            flex-shrink: 0;
+        }
+
+        /* --- Mobile Touch Controls --- */
+        #controls-container {
+            display: none; 
+            margin-top: 15px;
+            width: 160px;
+            height: 160px;
+            position: relative;
+        }
+        .dpad-btn {
+            position: absolute;
+            background-color: #34495e;
+            color: white;
+            border: none;
+            width: 50px;
+            height: 50px;
+            border-radius: 8px;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 0 #1a252f;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .dpad-btn:active {
+            background-color: #1a252f;
+            transform: translateY(2px);
+            box-shadow: 0 2px 0 #1a252f;
+        }
+        #btn-up    { top: 0; left: 55px; }
+        #btn-left  { top: 55px; left: 0; }
+        #btn-right { top: 55px; left: 110px; }
+        #btn-down  { top: 110px; left: 55px; }
+
+        @media (max-width: 768px) {
+            #controls-container { display: block; } 
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🐾 Paula the Pangolin's Quest</h1>
+    <div id="instructions">
+        Move Paula using <strong>ARROW KEYS</strong> or the <strong>ON-SCREEN BUTTONS</strong>. Sniff out the correct next word!
+    </div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="500"></canvas>
+    </div>
+
+    <div id="ui-box">
+        <div id="current-sentence" class="sentence">Your Sentence: </div>
+        <button id="restart-btn" onclick="resetToStudyScreen()">📋 Restart</button>
+    </div>
+
+    <div id="controls-container">
+        <button class="dpad-btn" id="btn-up">▲</button>
+        <button class="dpad-btn" id="btn-left">◀</button>
+        <button class="dpad-btn" id="btn-right">▶</button>
+        <button class="dpad-btn" id="btn-down">▼</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        let gameState = 'START';
+
+        const fullSequence = [
+            "You", "shall", "not", "make", "wrongful", "use", "of", "the", "name", "of", "the", "Lord", "your", "God.",
+            "We", "are", "to", "fear", "and", "love", "God", "so", "that", "we", "do", "not", "curse,", "swear,", "practice", "magic,", "lie,", "or", "deceive", "using", "God's", "name,", "but", "instead", "use", "that", "very", "name", "in", "every", "time", "of", "need", "to", "call", "on,", "pray", "to,", "praise", "and", "give", "thanks", "to", "God."
+        ];
+        
+        let currentIdx = 0;
+        let collectedWords = [];
+        let playerBounced = false;
+        let bounceTimer = 0;
+
+        let startTime = 0;
+        let elapsedTime = 0;
+
+        const player = {
+            x: 400,
+            y: 380,
+            size: 25,
+            speed: 4.5,
+            color: "#b03a2e" // Paula's Color
+        };
+
+        let screenWords = [];
+
+        const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+        
+        window.addEventListener("keydown", e => {
+            if (e.code in keys) keys[e.code] = true;
+            if (gameState === 'START' && (e.code === 'Enter' || e.code === 'Space')) {
+                startGame();
+            }
+        });
+        window.addEventListener("keyup", e => {
+            if (e.code in keys) keys[e.code] = false;
+        });
+
+        function bindTouchBtn(elementId, directionKey) {
+            const btn = document.getElementById(elementId);
+            
+            const startPress = (e) => {
+                e.preventDefault();
+                if (gameState === 'START') {
+                    startGame();
+                } else {
+                    keys[directionKey] = true;
+                }
+            };
+            
+            const endPress = (e) => {
+                e.preventDefault();
+                keys[directionKey] = false;
+            };
+
+            btn.addEventListener("touchstart", startPress);
+            btn.addEventListener("touchend", endPress);
+            btn.addEventListener("mousedown", startPress);
+            btn.addEventListener("mouseup", endPress);
+            btn.addEventListener("mouseleave", endPress);
+        }
+
+        bindTouchBtn("btn-up", "ArrowUp");
+        bindTouchBtn("btn-down", "ArrowDown");
+        bindTouchBtn("btn-left", "ArrowLeft");
+        bindTouchBtn("btn-right", "ArrowRight");
+
+        canvas.addEventListener("click", () => {
+            if (gameState === 'START') startGame();
+        });
+        canvas.addEventListener("touchstart", (e) => {
+            if (gameState === 'START') {
+                e.preventDefault();
+                startGame();
+            }
+        });
+
+        function startGame() {
+            gameState = 'PLAYING';
+            document.getElementById("ui-box").style.display = "flex";
+            startTime = Date.now();
+            elapsedTime = 0;
+            refreshWords();
+        }
+
+        function resetToStudyScreen() {
+            gameState = 'START';
+            currentIdx = 0;
+            collectedWords = [];
+            playerBounced = false;
+            bounceTimer = 0;
+            player.x = 400;
+            player.y = 380;
+            elapsedTime = 0;
+            
+            document.getElementById("ui-box").style.display = "none";
+            document.getElementById("current-sentence").innerText = "Your Sentence: ";
+            
+            for (let key in keys) { keys[key] = false; }
+        }
+
+        function formatTime(ms) {
+            let totalSeconds = Math.floor(ms / 1000);
+            let minutes = Math.floor(totalSeconds / 60);
+            let seconds = totalSeconds % 60;
+            return minutes.toString().padStart(2, '0') + ":" + seconds.toString().padStart(2, '0');
+        }
+
+        function getRandomPos(max, minDist, playerPos) {
+            let pos;
+            do {
+                pos = Math.random() * (max - 80) + 40;
+            } while (Math.abs(pos - playerPos) < minDist);
+            return pos;
+        }
+
+        function refreshWords() {
+            screenWords = [];
+            if (currentIdx < fullSequence.length) {
+                screenWords.push({
+                    text: fullSequence[currentIdx],
+                    x: getRandomPos(canvas.width, 150, player.x),
+                    y: getRandomPos(canvas.height, 150, player.y),
+                    isTarget: true
+                });
+            }
+
+            let distractors = [];
+            while(distractors.length < 5) {
+                let randWord = fullSequence[Math.floor(Math.random() * fullSequence.length)];
+                if (randWord !== fullSequence[currentIdx] && !distractors.includes(randWord)) {
+                    distractors.push(randWord);
+                }
+            }
+            
+            distractors.forEach(text => {
+                let x, y, overlapping, attempts = 0;
+
+                do {
+                    overlapping = false;
+                    x = getRandomPos(canvas.width, 120, player.x);
+                    y = getRandomPos(canvas.height, 120, player.y);
+                    attempts++;
+
+                    for (let j = 0; j < screenWords.length; j++) {
+                        let other = screenWords[j];
+                        let dist = Math.hypot(x - other.x, y - other.y);
+                        if (dist < 95) {
+                            overlapping = true;
+                            break;
+                        }
+                    }
+                } while (overlapping && attempts < 100);
+
+                screenWords.push({ text: text, x: x, y: y, isTarget: false });
+            });
+        }
+
+        function update() {
+            if (gameState !== 'PLAYING') return;
+
+            elapsedTime = Date.now() - startTime;
+
+            if (playerBounced) {
+                bounceTimer--;
+                if (bounceTimer <= 0) playerBounced = false;
+                return; 
+            }
+
+            if (keys["ArrowUp"] && player.y > player.size) player.y -= player.speed;
+            if (keys["ArrowDown"] && player.y < canvas.height - player.size) player.y += player.speed;
+            if (keys["ArrowLeft"] && player.x > player.size) player.x -= player.speed;
+            if (keys["ArrowRight"] && player.x < canvas.width - player.size) player.x += player.speed;
+
+            for (let i = screenWords.length - 1; i >= 0; i--) {
+                let w = screenWords[i];
+                let dist = Math.hypot(player.x - w.x, player.y - w.y);
+                
+                if (dist < player.size + 20) { 
+                    if (w.isTarget) {
+                        collectedWords.push(w.text);
+                        currentIdx++;
+                        
+                        if (currentIdx >= fullSequence.length) gameState = 'GAMEOVER';
+                        document.getElementById("current-sentence").innerText = "Your Sentence: " + collectedWords.join(" ");
+                        
+                        if (gameState === 'PLAYING') refreshWords();
+                    } else {
+                        playerBounced = true;
+                        bounceTimer = 45;
+                        player.x = 400;
+                        player.y = 380;
+                        for (let k in keys) keys[k] = false;
+                    }
+                }
+            }
+        }
+
+        function draw() {
+            ctx.fillStyle = "#e5e8e8";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = "#bdc3c7";
+            for(let i=0; i<20; i++) {
+                ctx.fillRect((i*97)%canvas.width, (i*123)%canvas.height, 4, 4);
+            }
+
+            if (gameState === 'START') {
+                ctx.fillStyle = "rgba(46, 64, 87, 0.9)";
+                ctx.fillRect(40, 30, canvas.width - 80, canvas.height - 60);
+
+                ctx.fillStyle = "#e67e22";
+                ctx.textAlign = "center";
+                ctx.font = "bold 26px Arial";
+                ctx.fillText("📜 Study First, Sniff Later! 📜", canvas.width / 2, 70);
+
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 18px Arial";
+                ctx.fillText("The Second Commandment:", canvas.width / 2, 115);
+                
+                ctx.font = "italic 18px Arial";
+                ctx.fillStyle = "#f1c40f";
+                ctx.fillText('"You shall not make wrongful use of the name of the Lord your God."', canvas.width / 2, 145);
+
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 18px Arial";
+                ctx.fillText("What does this mean?", canvas.width / 2, 200);
+                
+                ctx.font = "italic 16px Arial";
+                ctx.fillStyle = "#f1c40f";
+                ctx.fillText('"We are to fear and love God so that we do not curse, swear, practice', canvas.width / 2, 235);
+                ctx.fillText('magic, lie, or deceive using God\'s name, but instead use that very name', canvas.width / 2, 260);
+                ctx.fillText('in every time of need to call on, pray to, praise and give thanks to God."', canvas.width / 2, 285);
+
+                ctx.fillStyle = "#2ecc71";
+                ctx.fillRect(275, 350, 250, 50);
+                ctx.fillStyle = "black";
+                ctx.font = "bold 20px Arial";
+                ctx.fillText("START QUEST!", canvas.width / 2, 382);
+
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "14px Arial";
+                ctx.fillText("(Tap screen or press SPACE to begin)", canvas.width / 2, 430);
+
+            } else if (gameState === 'PLAYING') {
+                ctx.fillStyle = "#2c3e50";
+                ctx.font = "bold 20px Arial";
+                ctx.textAlign = "right";
+                ctx.fillText("⏱️ " + formatTime(elapsedTime), canvas.width - 20, 35);
+
+                if (playerBounced) {
+                    ctx.fillStyle = "#e74c3c";
+                    ctx.font = "bold 24px Arial";
+                    ctx.textAlign = "center";
+                    ctx.fillText("Achoo! Paula sneezed! Wrong word!", canvas.width / 2, 50);
+                }
+
+                ctx.font = "bold 16px Arial";
+                screenWords.forEach(w => {
+                    ctx.fillStyle = "rgba(93, 109, 126, 0.15)";
+                    ctx.beginPath();
+                    ctx.arc(w.x, w.y - 6, 38, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.fillStyle = "#2c3e50";
+                    ctx.textAlign = "center";
+                    ctx.fillText(w.text, w.x, w.y);
+                });
+
+                // Draw Paula
+                ctx.fillStyle = player.color;
+                ctx.beginPath();
+                ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = "#641e16";
+                ctx.beginPath();
+                ctx.arc(player.x - 15, player.y + 10, 12, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = player.color;
+                ctx.beginPath();
+                ctx.moveTo(player.x + 10, player.y - 10);
+                ctx.lineTo(player.x + 35, player.y);
+                ctx.lineTo(player.x + 10, player.y + 10);
+                ctx.fill();
+                
+                ctx.fillStyle = "white";
+                ctx.beginPath();
+                ctx.arc(player.x + 15, player.y - 3, 3, 0, Math.PI * 2);
+                ctx.fill();
+
+            } else if (gameState === 'GAMEOVER') {
+                ctx.fillStyle = "rgba(46, 204, 113, 0.95)";
+                ctx.fillRect(50, 40, canvas.width - 100, canvas.height - 80);
+                
+                ctx.fillStyle = "white";
+                ctx.textAlign = "center";
+                ctx.font = "bold 32px Arial";
+                ctx.fillText("🎉 Great Job! You Fed Paula! 🎉", canvas.width / 2, 100);
+                
+                ctx.fillStyle = "#f1c40f";
+                ctx.font = "bold 24px Arial";
+                ctx.fillText("⏱️ Total Time: " + formatTime(elapsedTime), canvas.width / 2, 145);
+
+                ctx.fillStyle = "white";
+                ctx.font = "18px Arial";
+                ctx.fillText("You mastered the Second Commandment & Meaning:", canvas.width / 2, 200);
+                
+                ctx.font = "italic 16px Arial";
+                ctx.fillStyle = "#f1c40f";
+                ctx.fillText('"You shall not make wrongful use of the name of the Lord your God."', canvas.width / 2, 245);
+                
+                ctx.font = "italic 15px Arial";
+                ctx.fillText('"We are to fear and love God so that we do not curse, swear, practice', canvas.width / 2, 290);
+                ctx.fillText('magic, lie, or deceive using God\'s name, but instead use that very name', canvas.width / 2, 315);
+                ctx.fillText('in every time of need to call on, pray to, praise and give thanks to God."', canvas.width / 2, 340);
+            }
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>
